@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import './App.css'
 
+const CAT_YEARS = Array.from({ length: 25 }, (_, i) => (2024 - i).toString())
+
 const ALL_TOPICS = [
   "Probability",
   "Permutation & Combination",
@@ -29,26 +31,35 @@ const ALL_TOPICS = [
   "Equations",
 ]
 
-function SearchBar({ onSelectTopic, selectedTopic, onClear }) {
+function SearchBar({ onSelectTopic, selectedTopic, onSelectYear, selectedYear, onClear }) {
   const [input, setInput] = useState('')
   const [suggestions, setSuggestions] = useState([])
+  const [mode, setMode] = useState('topic')
+
+  const isSelected = selectedTopic || selectedYear
+  const displayValue = selectedYear ? `CAT ${selectedYear}` : selectedTopic || input
 
   function handleInput(e) {
     const val = e.target.value
     setInput(val)
-    if (val.length < 2) {
-      setSuggestions([])
-      return
+    if (val.length < 2) { setSuggestions([]); return }
+
+    if (/^\d+$/.test(val)) {
+      setMode('year')
+      setSuggestions(CAT_YEARS.filter(y => y.startsWith(val)))
+    } else {
+      setMode('topic')
+      setSuggestions(ALL_TOPICS.filter(t => t.toLowerCase().includes(val.toLowerCase())))
     }
-    const matches = ALL_TOPICS.filter(t =>
-      t.toLowerCase().includes(val.toLowerCase())
-    )
-    setSuggestions(matches)
   }
 
-  function handleSelect(topic) {
-    onSelectTopic(topic)
-    setInput(topic)
+  function handleSelect(value) {
+    if (mode === 'year') {
+      onSelectYear(value)
+    } else {
+      onSelectTopic(value)
+    }
+    setInput('')
     setSuggestions([])
   }
 
@@ -63,31 +74,31 @@ function SearchBar({ onSelectTopic, selectedTopic, onClear }) {
       <input
         className="search-input"
         type="text"
-        placeholder="Type a topic — e.g. Probability, Geometry, Circles..."
-        value={selectedTopic || input}
+        placeholder="Topic or year — e.g. Probability, Geometry, 2024..."
+        value={displayValue}
         onChange={handleInput}
-        onFocus={() => selectedTopic && handleClear()}
+        onFocus={() => isSelected && handleClear()}
       />
-      {selectedTopic && (
+      {isSelected && (
         <button className="clear-btn" onClick={handleClear}>✕</button>
       )}
-      {suggestions.length > 0 && !selectedTopic && (
+      {suggestions.length > 0 && !isSelected && (
         <div className="suggestions-dropdown">
-          {suggestions.map(topic => (
+          {suggestions.map(val => (
             <div
-              key={topic}
+              key={val}
               className="suggestion-item"
-              onClick={() => handleSelect(topic)}
+              onClick={() => handleSelect(val)}
             >
-              {topic}
+              {mode === 'year' ? `CAT ${val}` : val}
             </div>
           ))}
         </div>
       )}
-      {input.length >= 2 && suggestions.length === 0 && !selectedTopic && (
+      {input.length >= 2 && suggestions.length === 0 && !isSelected && (
         <div className="suggestions-dropdown">
           <div className="no-suggestion">
-            No matching topic — try: Probability, Geometry, Algebra
+            No match — try a topic (Probability, Algebra) or a year (2024, 2023)
           </div>
         </div>
       )}
@@ -276,9 +287,11 @@ function QuestionCard({ question }) {
   )
 }
 
-function YearGroup({ year, questions, isRecent }) {
-  const [open, setOpen] = useState(false)
+function YearGroup({ year, questions, isRecent, autoOpen }) {
+  const [open, setOpen] = useState(autoOpen || false)
   const [confirmed, setConfirmed] = useState(false)
+
+  useEffect(() => { if (autoOpen) setOpen(true) }, [autoOpen])
 
   return (
     <div className="year-group">
@@ -331,7 +344,7 @@ function YearGroup({ year, questions, isRecent }) {
   )
 }
 
-function YearGroups({ questions }) {
+function YearGroups({ questions, selectedYear }) {
   const currentYear = new Date().getFullYear()
   const lastCATYear = currentYear - 1
 
@@ -352,6 +365,7 @@ function YearGroups({ questions }) {
           year={parseInt(year)}
           questions={grouped[year]}
           isRecent={parseInt(year) >= lastCATYear - 1}
+          autoOpen={selectedYear === year}
         />
       ))}
     </div>
@@ -360,24 +374,35 @@ function YearGroups({ questions }) {
 
 function App() {
   const [selectedTopic, setSelectedTopic] = useState('')
+  const [selectedYear, setSelectedYear] = useState('')
   const [questions, setQuestions] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchQuestions()
-  }, [selectedTopic])
+  useEffect(() => { fetchQuestions() }, [selectedTopic, selectedYear])
+
+  function handleSelectTopic(topic) { setSelectedYear(''); setSelectedTopic(topic) }
+  function handleSelectYear(year) { setSelectedTopic(''); setSelectedYear(year) }
+  function handleClear() { setSelectedTopic(''); setSelectedYear('') }
 
   async function fetchQuestions() {
     setLoading(true)
 
-    const base = supabase
+    const base = () => supabase
       .from('questions')
       .select('*')
       .eq('exam', 'CAT')
       .eq('section', 'QA')
 
+    if (selectedYear) {
+      const { data, error } = await base().eq('year', parseInt(selectedYear))
+      if (error) console.error('Error fetching:', error)
+      setQuestions(data || [])
+      setLoading(false)
+      return
+    }
+
     if (!selectedTopic) {
-      const { data, error } = await base
+      const { data, error } = await base()
       if (error) console.error('Error fetching:', error)
       setQuestions(data || [])
       setLoading(false)
@@ -385,8 +410,8 @@ function App() {
     }
 
     const [{ data: byTopic, error: e1 }, { data: bySubtopic, error: e2 }] = await Promise.all([
-      supabase.from('questions').select('*').eq('exam', 'CAT').eq('section', 'QA').eq('topic', selectedTopic),
-      supabase.from('questions').select('*').eq('exam', 'CAT').eq('section', 'QA').eq('subtopic', selectedTopic)
+      base().eq('topic', selectedTopic),
+      base().eq('subtopic', selectedTopic)
     ])
 
     if (e1 || e2) {
@@ -424,16 +449,20 @@ function App() {
         </p>
 
         <SearchBar
-          onSelectTopic={setSelectedTopic}
+          onSelectTopic={handleSelectTopic}
           selectedTopic={selectedTopic}
-          onClear={() => setSelectedTopic('')}
+          onSelectYear={handleSelectYear}
+          selectedYear={selectedYear}
+          onClear={handleClear}
         />
 
         <div className="results-meta">
           <div className="results-count">
             {selectedTopic
               ? <><span>{questions.length}</span> questions on <span>{selectedTopic}</span></>
-              : <><span>{questions.length}</span> questions — select a topic to filter</>
+              : selectedYear
+              ? <><span>{questions.length}</span> questions from <span>CAT {selectedYear}</span></>
+              : <><span>{questions.length}</span> questions — search by topic or year</>
             }
           </div>
         </div>
@@ -442,9 +471,9 @@ function App() {
           {loading ? (
             <div className="loading-state">Fetching questions...</div>
           ) : questions.length === 0 ? (
-            <div className="empty-state">No questions found for this topic yet.</div>
+            <div className="empty-state">No questions found for this filter yet.</div>
           ) : (
-            <YearGroups questions={questions} />
+            <YearGroups questions={questions} selectedYear={selectedYear} />
           )}
         </div>
       </main>
