@@ -26,7 +26,7 @@ For each question output exactly this structure:
   "correct": 0,
   "question_type": "MCQ or TITA",
   "topic": "one of: Arithmetic / Algebra / Geometry / Number Theory / Permutation & Combination / Probability / Modern Math",
-  "subtopic": "specific subtopic",
+  "subtopic": "use EXACTLY one of these per topic — Arithmetic: Percentages, Profit & Loss, Simple & Compound Interest, Time & Work, Time, Speed & Distance, Ratio & Proportion, Averages, Mixtures & Alligations; Algebra: Quadratic Equations, Linear Equations, Logarithms, Indices and Surds, Sequences & Series, Functions, Inequalities; Geometry: Triangles, Circles, Mensuration, Coordinate Geometry, Trigonometry, Quadrilaterals; Number Theory: Remainders, HCF & LCM, Divisibility, Number Properties; Permutation & Combination: Arrangements, Selections, Functions & Mappings; Probability: Basic Probability, Conditional Probability; Modern Math: Set Theory",
   "concept": "core concept being tested in one phrase",
   "difficulty": "Easy or Medium or Hard",
   "solution": "step by step solution"

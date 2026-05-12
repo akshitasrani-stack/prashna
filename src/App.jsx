@@ -100,9 +100,40 @@ function QuestionCard({ question }) {
   const [selected, setSelected] = useState(null)
   const [showAnswer, setShowAnswer] = useState(false)
   const [attempted, setAttempted] = useState(null)
+  const [attemptId, setAttemptId] = useState(null)
+  const [errorType, setErrorType] = useState(null)
+  const [showPracticeTeaser, setShowPracticeTeaser] = useState(false)
 
-  function handleAttempt(type) {
+  async function handleAttempt(type) {
     setAttempted(type)
+    const { data } = await supabase
+      .from('attempts')
+      .insert({ question_id: question.id, result: type })
+      .select('id')
+      .single()
+    if (data) setAttemptId(data.id)
+  }
+
+  function handleShowAnswer() {
+    if (selected !== null && question.option_a) {
+      const result = selected === question.correct ? 'right' : 'wrong'
+      setShowAnswer(true)
+      setAttempted(result)
+      supabase.from('attempts')
+        .insert({ question_id: question.id, result })
+        .select('id')
+        .single()
+        .then(({ data }) => { if (data) setAttemptId(data.id) })
+    } else {
+      setShowAnswer(true)
+    }
+  }
+
+  function handleErrorType(type) {
+    setErrorType(type)
+    if (attemptId) {
+      supabase.from('attempts').update({ error_type: type }).eq('id', attemptId)
+    }
   }
 
   return (
@@ -156,12 +187,14 @@ function QuestionCard({ question }) {
           )}
 
           {!showAnswer && (
-            <button
-              className="show-answer-btn"
-              onClick={() => setShowAnswer(true)}
-            >
-              Show Answer & Solution
-            </button>
+            <div className="action-row">
+              <button className="show-answer-btn" onClick={handleShowAnswer}>
+                Show Answer & Solution
+              </button>
+              <button className="practice-btn" onClick={() => setShowPracticeTeaser(v => !v)}>
+                Practice Similar ✦
+              </button>
+            </div>
           )}
 
           {showAnswer && (
@@ -179,7 +212,7 @@ function QuestionCard({ question }) {
             </div>
           )}
 
-          {showAnswer && !attempted && (
+          {showAnswer && !attempted && (selected === null || question.question_type === 'TITA') && (
             <div className="attempt-section">
               <div className="attempt-label">Mark your attempt</div>
               <div className="attempt-btns">
@@ -196,11 +229,45 @@ function QuestionCard({ question }) {
             </div>
           )}
 
-          {attempted && (
-            <div className={`attempt-result ${attempted}`}>
-              {attempted === 'right' && '✓ Logged as correct'}
-              {attempted === 'wrong' && '✗ Logged — this will show in your weakness report'}
-              {attempted === 'skip' && '— Skipped'}
+          {attempted === 'right' && (
+            <div className="attempt-result right">✓ Logged as correct</div>
+          )}
+
+          {attempted === 'skip' && (
+            <div className="attempt-result skip">— Skipped</div>
+          )}
+
+          {attempted === 'wrong' && !errorType && (
+            <div className="error-type-section">
+              <div className="error-type-label">What went wrong?</div>
+              <div className="error-type-btns">
+                <button className="error-type-btn" onClick={() => handleErrorType('calculation')}>Calculation mistake</button>
+                <button className="error-type-btn" onClick={() => handleErrorType('concept')}>Concept not clear</button>
+                <button className="error-type-btn" onClick={() => handleErrorType('misread')}>Misread the question</button>
+                <button className="error-type-btn" onClick={() => handleErrorType('partial')}>Knew it partially</button>
+              </div>
+            </div>
+          )}
+
+          {attempted === 'wrong' && errorType && (
+            <div className="attempt-result wrong">
+              ✗ Logged — {
+                errorType === 'calculation' ? 'Calculation mistake' :
+                errorType === 'concept' ? 'Concept not clear' :
+                errorType === 'misread' ? 'Misread the question' :
+                'Knew it partially'
+              }
+            </div>
+          )}
+
+          {showAnswer && (
+            <div className="practice-row">
+              <button className="practice-btn" onClick={() => setShowPracticeTeaser(v => !v)}>
+                Practice Similar ✦
+              </button>
+              {showPracticeTeaser && (
+                <div className="practice-teaser">Premium feature — coming soon</div>
+              )}
             </div>
           )}
         </div>
@@ -303,24 +370,40 @@ function App() {
   async function fetchQuestions() {
     setLoading(true)
 
-    let query = supabase
+    const base = supabase
       .from('questions')
       .select('*')
       .eq('exam', 'CAT')
       .eq('section', 'QA')
 
-    if (selectedTopic) {
-      query = query.or(`topic.eq.${selectedTopic},subtopic.eq.${selectedTopic}`)
+    if (!selectedTopic) {
+      const { data, error } = await base
+      if (error) console.error('Error fetching:', error)
+      setQuestions(data || [])
+      setLoading(false)
+      return
     }
 
-    const { data, error } = await query
+    const [{ data: byTopic, error: e1 }, { data: bySubtopic, error: e2 }] = await Promise.all([
+      supabase.from('questions').select('*').eq('exam', 'CAT').eq('section', 'QA').eq('topic', selectedTopic),
+      supabase.from('questions').select('*').eq('exam', 'CAT').eq('section', 'QA').eq('subtopic', selectedTopic)
+    ])
 
-    if (error) {
-      console.error('Error fetching:', error)
-    } else {
-      setQuestions(data)
+    if (e1 || e2) {
+      console.error('Error fetching:', e1 || e2)
+      setQuestions([])
+      setLoading(false)
+      return
     }
 
+    const seen = new Set()
+    const merged = [...(byTopic || []), ...(bySubtopic || [])].filter(q => {
+      if (seen.has(q.id)) return false
+      seen.add(q.id)
+      return true
+    })
+
+    setQuestions(merged)
     setLoading(false)
   }
 
